@@ -4,6 +4,7 @@ from threading import Lock
 
 from .approvals import ApprovalManager
 from .contracts import CancelToken, Effect, Proposal, Result
+from .context import redact
 from .policy import Registry
 from .store import Store
 
@@ -43,6 +44,12 @@ class Executor:
                 verified = Result("unknown", "Action interrupted; inspect its effects before continuing", {})
             self.store.append_event(current.action.task_id, {
                 "action_id": current.action.id, "digest": current.digest, "status": verified.status,
+                "summary": redact(verified.summary)[:1000],
+                "evidence": {key: redact(value)[:1024] if type(value) is str else value
+                             for key, value in verified.evidence.items()
+                             if key in {"target_id", "fingerprint", "exit_code", "exists", "bytes", "sha256",
+                                        "verified_at", "receipt_id", "error_code", "observed_state"}
+                             and type(value) in (str, int, bool, type(None))},
             })
             return verified
         finally:

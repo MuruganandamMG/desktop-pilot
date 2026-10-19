@@ -22,3 +22,16 @@ def test_secret_patterns_are_redacted():
 def test_invalid_source_is_rejected():
     with pytest.raises(ValueError):
         prepare_context([Source("a", 3)], {"a"})
+
+
+@pytest.mark.parametrize("text", [
+    '{"password": "very private value"}',
+    "{'api_key': 'sensitive value'}",
+    '{"token":"secret\\\"value"}',
+])
+def test_quoted_json_secrets_are_removed_before_truncation(text):
+    safe = prepare_context([Source("a", text + "x" * 15000)], {"a"}).text
+    assert "very private" not in safe
+    assert "sensitive value" not in safe
+    assert "secret" not in safe
+    assert "[REDACTED]" in safe

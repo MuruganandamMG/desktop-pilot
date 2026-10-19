@@ -1,4 +1,5 @@
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -23,7 +24,7 @@ def system(tmp_path):
     spec = ToolSpec(
         Effect.REMOVE, validate,
         lambda action: (Target("file-1", "example.txt", fingerprint[0]),),
-        lambda proposal, cancel: calls.append(proposal) or Result("verified", "recycled", {}),
+        lambda proposal, cancel: calls.append(proposal) or Result("verified", "recycled", {"exists": False, "raw_text": "private output"}),
         lambda proposal, result: result,
         "Recycle Bin recovery may be available",
     )
@@ -114,3 +115,15 @@ def test_pending_approvals_are_invalid_after_recovery(system):
     with pytest.raises(PermissionError):
         executor.execute(proposal, grant, CancelToken())
     assert not calls
+
+
+def test_executor_preserves_bounded_verification_receipt_across_reopen(system):
+    store, executor, approvals, action, _, _, _ = system
+    proposal = executor.prepare(action)
+    executor.execute(proposal, approve(approvals, proposal), CancelToken())
+    path = store.db.execute('PRAGMA database_list').fetchone()[2]
+    with Store(Path(path)) as reopened:
+        receipt = reopened.events(action.task_id)[0]
+        assert receipt['summary'] == 'recycled'
+        assert receipt['evidence'] == {"exists": False}
+        assert "private output" not in str(receipt)

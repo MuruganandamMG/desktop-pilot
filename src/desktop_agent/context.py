@@ -18,7 +18,7 @@ class ContextBundle:
 
 _SECRETS = re.compile(
     r"(?i)(?:authorization\s*:\s*bearer\s+)[^\s]+"
-    r"|(?:api[_-]?key|password|secret|token)\s*[=:]\s*[^\s,;]+"
+    r'''|["']?(?:api[_-]?key|password|secret|token)["']?\s*[=:]\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}]+)'''
     r"|\bgh[pousr]_[A-Za-z0-9_]{20,}\b"
     r"|\bAIza[A-Za-z0-9_-]{30,}\b"
     r"|-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"
