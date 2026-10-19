@@ -108,3 +108,33 @@ class CancelToken:
 
     def cancel(self):
         self._event.set()
+
+
+@dataclass(frozen=True)
+class TokenUsage:
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    id: str | None
+    name: str
+    arguments: Mapping
+
+
+@dataclass(frozen=True)
+class ModelTurn:
+    content: object
+    calls: tuple[ToolCall, ...]
+    text: str
+    usage: TokenUsage
+    attempts: int = 1
+
+
+@dataclass(frozen=True)
+class CapabilityReport:
+    model_id: str
+    available: bool
+    function_calling: bool
+    usage: TokenUsage

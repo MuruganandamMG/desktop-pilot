@@ -7,12 +7,13 @@ Started 19 October 2026. The user authorized vault configuration, repository set
 - Repository bootstrap: complete; origin connected and initial main commit pushed.
 - Local Obsidian vault: configured at the authorized path with private notes and local vault registration; excluded from Git. Registration and real local note retrieval verified; Obsidian editor rendering still to check.
 - Task 1: immutable validated actions, persisted task transitions, interrupted-task recovery and a manual-launch native window implemented. Requests remain paused; no computer controls or model calls are presented as available.
-- CI: Windows Python 3.12 checks configured for pushes and pull requests; hosted core-commit run 39273778738 passed. Final milestone commit's run still to verify after push.
+- CI: Windows Python 3.12 checks run on pushes and pull requests; foundation milestone 30fd7cc passed hosted run 39274445407. Later commits are checked separately.
 - Task 2 foundation: validated nonsecret settings, credential-store adapter, bounded source grants and best-effort redaction implemented and offline-tested. Live Credential Manager write and cloud payload preview are not yet exercised.
 - Task 3 core: deny-by-default capability registry, immutable preview digests, five-minute single-use approvals, target revalidation, cancellation checks and persistent duplicate-action protection implemented. Tests exercise fake/missing/replayed/expired/changed approvals and blocked capabilities; real adapters and approval UI still pending.
 - Task 5 partial: approval-preview dialog defaults to Cancel and lists exact targets/recovery; no live adapter/UI wiring, tray, stop hotkey, or session-lock handler yet.
 - Task 14 partial: read-only, bounded, granted-folder vault search implemented with source dates and note-claimed provenance; no write/update/delete or cloud retrieval integration yet.
-- Current offline suite: 37 passing tests, one symlink test skipped because this standard-user host does not permit creating symlinks. No destructive capability is registered in the application. Native Windows launch/clean exit and an offscreen rendering with an explicitly loaded Windows font were verified.
+- Task 4 transport: official google-genai 2.31.0 client implemented with manual function dispatch, preserved provider content/signatures, sanitized errors, bounded retries, a total request deadline, usage extraction, and an opt-in structured capability probe. A real SDK client is exercised through an offline HTTP transport; no live account/model capability is inferred from that test. Tool-loop/UI wiring is in progress.
+- Current offline suite: 51 passing tests, one symlink test skipped because this standard-user host does not permit creating symlinks. No destructive capability is registered in the application. Native Windows launch/clean exit and an offscreen rendering with an explicitly loaded Windows font were verified.
 - Tasks 4, 6–13 and the remaining portions of Tasks 2, 3, 5, 14 are still pending. No startup activation or automatic execution is enabled.
 
 ## Execution decisions
