@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "desktop-pilot"
+version = "0.1.0"
+description = "A permission-controlled Windows assistant with local Markdown memory"
+requires-python = ">=3.12"
+dependencies = ["PySide6-Essentials==6.12.0", "keyring==25.7.0"]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1", "pytest-qt==4.5.0"]
+
+[project.scripts]
+desktop-pilot = "desktop_agent.__main__:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+

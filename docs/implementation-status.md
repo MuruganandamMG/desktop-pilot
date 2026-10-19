@@ -4,9 +4,11 @@ Started 19 October 2026. The user authorized vault configuration, repository set
 
 ## Current work
 
-- Repository bootstrap: in progress.
-- Local Obsidian vault: in progress; keep all live notes out of Git.
-- Tasks 1–14: pending implementation and verification. Task 14 is scheduled after the context/file permission foundation and before final acceptance.
+- Repository bootstrap: complete; origin connected and initial main commit pushed.
+- Local Obsidian vault: configured at the authorized path with private notes and local vault registration; excluded from Git. Editor rendering still to check.
+- Task 1 core: immutable validated actions, persisted task transitions and interrupted-task recovery implemented; five tests observed RED then GREEN. Manual window is next; Task 1 is not yet fully complete.
+- CI: Windows Python 3.12 checks configured for pushes and pull requests; hosted result still to verify.
+- Tasks 2–14: pending implementation and verification. Task 14 is scheduled after the context/file permission foundation and before final acceptance.
 
 ## Execution decisions
 
@@ -16,6 +18,7 @@ Started 19 October 2026. The user authorized vault configuration, repository set
 - The existing user-authorized vault path is `D:\Desktop agent\memory`. Do not import personal vaults or enable sync/plugins.
 - Push each coherent tested commit to a feature branch. Do not merge to main automatically.
 - Ruling: keep the per-plan skill scratch ledger private and the durable implementation status public; PowerShell-native task bookkeeping replaces the skill's Bash helper scripts on this Windows host. Cost: ledger operations are verified manually.
+- Ruling: depend on PySide6-Essentials, not the full PySide6 distribution, because this native window needs QtWidgets and no embedded browser/PDF engine. Cost: add a module explicitly if a later feature actually needs it.
 
 ## Pending live prerequisites
 
