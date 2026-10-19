@@ -20,4 +20,3 @@ def test_cancel_is_explicit_and_thread_safe():
     assert not token.cancelled
     token.cancel()
     assert token.cancelled
-

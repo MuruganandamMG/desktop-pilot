@@ -8,7 +8,10 @@ Started 19 October 2026. The user authorized vault configuration, repository set
 - Local Obsidian vault: configured at the authorized path with private notes and local vault registration; excluded from Git. Editor rendering still to check.
 - Task 1 core: immutable validated actions, persisted task transitions and interrupted-task recovery implemented; five tests observed RED then GREEN. Manual window is next; Task 1 is not yet fully complete.
 - CI: Windows Python 3.12 checks configured for pushes and pull requests; hosted result still to verify.
-- Tasks 2–14: pending implementation and verification. Task 14 is scheduled after the context/file permission foundation and before final acceptance.
+- Task 2 foundation: validated nonsecret settings, credential-store adapter, bounded source grants and best-effort redaction implemented and offline-tested. Live Credential Manager write and cloud payload preview are not yet exercised.
+- Task 3 core: deny-by-default capability registry, immutable preview digests, five-minute single-use approvals, target revalidation, cancellation checks and persistent duplicate-action protection implemented. Tests exercise fake/missing/replayed/expired/changed approvals and blocked capabilities; real adapters and approval UI still pending.
+- Current offline suite: 26 passing tests. No destructive capability is registered in the application.
+- Tasks 4–14: pending implementation and verification. Task 14 is scheduled after the context/file permission foundation and before final acceptance.
 
 ## Execution decisions
 

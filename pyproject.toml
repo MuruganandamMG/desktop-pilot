@@ -18,4 +18,3 @@ desktop-pilot = "desktop_agent.__main__:main"
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-

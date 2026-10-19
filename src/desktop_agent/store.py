@@ -38,6 +38,13 @@ class Store:
                 CREATE TABLE IF NOT EXISTS events (
                     id INTEGER PRIMARY KEY, task_id TEXT REFERENCES tasks(id),
                     payload TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS approvals (
+                    id TEXT PRIMARY KEY, task_id TEXT REFERENCES tasks(id),
+                    digest TEXT NOT NULL, expires REAL NOT NULL,
+                    decision TEXT NOT NULL, consumed INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS actions (
+                    task_id TEXT REFERENCES tasks(id), id TEXT NOT NULL,
+                    digest TEXT NOT NULL, PRIMARY KEY(task_id,id));
                 PRAGMA user_version=1;
             """)
 
@@ -85,8 +92,16 @@ class Store:
 
     def interrupt_inflight(self) -> int:
         with self.db:
+            self.db.execute("UPDATE approvals SET decision='rejected' WHERE consumed=0")
             return self.db.execute("""UPDATE tasks SET state='INTERRUPTED'
                 WHERE state IN ('QUEUED','PLANNING','WAITING_APPROVAL','EXECUTING','VERIFYING')""").rowcount
+
+    def claim_action(self, task_id: str, action_id: str, digest: str) -> None:
+        try:
+            with self.db:
+                self.db.execute("INSERT INTO actions VALUES (?,?,?)", (task_id, action_id, digest))
+        except sqlite3.IntegrityError as exc:
+            raise PermissionError("Action already attempted or task missing; no automatic replay") from exc
 
     def close(self):
         self.db.close()

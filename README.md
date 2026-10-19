@@ -9,4 +9,3 @@ A Windows assistant using cloud Gemini, local tools, and Obsidian memory. Remova
 - [Contributor and agent instructions](AGENTS.md)
 
 The private `memory/` vault is excluded from Git. Never add API keys or personal notes to this repository.
-
