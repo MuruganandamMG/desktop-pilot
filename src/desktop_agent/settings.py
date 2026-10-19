@@ -93,7 +93,7 @@ def _checked_key(value: str | None) -> str | None:
     return value
 
 
-def _project_env_key() -> str | None:
+def _project_env_key(variable="GEMINI_API_KEY") -> str | None:
     # Never discover .env through the current directory or parent traversal.
     if not (PROJECT_ROOT / "pyproject.toml").is_file():
         return None
@@ -109,9 +109,9 @@ def _project_env_key() -> str | None:
         for line in raw.decode("utf-8-sig").splitlines():
             name, separator, literal = line.partition("=")
             fields = name.strip().split()
-            if fields == ["export", "GEMINI_API_KEY"]:
-                name = "GEMINI_API_KEY"
-            if not separator or name.strip() != "GEMINI_API_KEY":
+            if fields == ["export", variable]:
+                name = variable
+            if not separator or name.strip() != variable:
                 continue
             if found:
                 raise ValueError("Duplicate GEMINI_API_KEY configuration")
@@ -137,3 +137,19 @@ def set_api_key(value: str) -> None:
     if type(value) is not str or not value.strip() or len(value) > 4096:
         raise ValueError("Enter a nonempty API key")
     keyring.set_password("DesktopPilot", "gemini-api-key", value.strip())
+
+
+def voice_settings() -> tuple[str, int | None, int | None]:
+    def value(name, default=None):
+        return os.environ.get(name) or _project_env_key(name) or default
+    model = value("GEMINI_LIVE_MODEL", "gemini-3.8-live")
+    if not model or len(model) > 128 or any(c.isspace() or ord(c) < 32 for c in model):
+        raise ValueError("Invalid GEMINI_LIVE_MODEL")
+    def device(name):
+        raw = value(name)
+        if raw is None:
+            return None
+        if not raw.isascii() or not raw.isdecimal() or len(raw) > 5:
+            raise ValueError(f"Invalid {name}; use the device number from --list-audio-devices")
+        return int(raw)
+    return model, device("VOICE_INPUT_DEVICE"), device("VOICE_OUTPUT_DEVICE")

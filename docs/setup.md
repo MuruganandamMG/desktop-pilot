@@ -1,6 +1,6 @@
 # Development setup
 
-Requires Windows and Python 3.12 or newer. From the feature checkout:
+Requires Windows and Python 3.12 or newer. From the active checkout:
 
 ```powershell
 python -m venv .venv
@@ -10,19 +10,38 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m desktop_agent
 ```
 
-The native window is a read-only cloud preview. It searches local memory and can call Gemini after an explicit preview and consent. Only the constant `runtime_status` tool is registered; it does not inspect or change Windows, browsers, or files. No removal tools or startup registration are enabled. Raw prompts and model answers are not retained in the journal; task states, action receipts and usage metadata are retained.
+Default launch is a terminal voice agent. The optional `--gui` legacy native window is a read-only cloud preview. It searches local memory and can call Gemini after an explicit preview and consent. Only the constant `runtime_status` tool is registered; it does not inspect or change Windows, browsers, or files. No removal tools or startup registration are enabled. Raw prompts and model answers are not retained in the journal; task states, action receipts and usage metadata are retained.
 
 Nonsecret settings and the SQLite journal live under `%LOCALAPPDATA%\DesktopAgent`. The `vault_path` setting points to the private vault. No API key is needed for local search or `--status`. Never paste a real key into tests, a GitHub issue, a chat, the vault, or tracked repository files.
 
 ## Local .env configuration
 
-The development checkout loads only `GEMINI_API_KEY` from its root `.env`, next to `pyproject.toml`. Lookup order is the process environment, then that project file, then Windows Credential Manager. Empty values fall through to the next source. A nonempty invalid value fails instead of silently selecting another credential.
+The development checkout loads `GEMINI_API_KEY` and explicit voice settings from its root `.env`, next to `pyproject.toml`. Lookup order is the process environment, then that project file, then Windows Credential Manager. Empty values fall through to the next source. A nonempty invalid value fails instead of silently selecting another credential.
 
-The ignored local `.env` is ready for your key; `.env.example` is a tracked empty template. Only `GEMINI_API_KEY` is read. Quotes, optional `export`, and inline comments are supported; interpolation, command execution, parent-directory search, and loading unrelated variables are not. Malformed, duplicated, oversized or reparse/symlink key files fail with a generic error that excludes secret values. The file limit is 64 KiB and the key limit is 4,096 characters.
+The ignored local `.env` is ready for your key; `.env.example` is a tracked empty template. Only `GEMINI_API_KEY`, `GEMINI_LIVE_MODEL`, `VOICE_INPUT_DEVICE` and `VOICE_OUTPUT_DEVICE` are read. Quotes, optional `export`, and inline comments are supported; interpolation, command execution, parent-directory search, and loading unrelated variables are not. Malformed, duplicated, oversized or reparse/symlink key files fail with a generic error that excludes secret values. The file limit is 64 KiB and the key limit is 4,096 characters.
 
 Adding a key to `.env` does not save it to Credential Manager, mutate the process environment, or trigger an API call. The GUI key-save action still writes to Credential Manager; remove/clear an overriding environment setting yourself if you intend the saved credential to be used. This plaintext development file is not an encrypted credential store. Installed packages without the source checkout's `pyproject.toml` use process variables/Credential Manager rather than searching working directories for `.env`.
 
-## First Gemini connection
+## Terminal voice (default)
+
+Close the old Desktop Pilot window first; all modes share one instance lock. Run `.\.venv\Scripts\python.exe -m desktop_agent` from `D:\Desktop agent`. No visible window or web server opens. Before Enter, no microphone or cloud connection starts.
+
+Set `GEMINI_API_KEY` in the ignored root `.env`. `GEMINI_LIVE_MODEL` defaults to `gemini-3.8-live`; set an accessible native audio Live model if your account does not support it. No silent substitution occurs. The legacy text model setting is independent. Optional `VOICE_INPUT_DEVICE` and `VOICE_OUTPUT_DEVICE` are numeric device IDs from `.\.venv\Scripts\python.exe -m desktop_agent --list-audio-devices`. Blank selects Windows defaults. Use a headset: acoustic echo cancellation is not claimed.
+
+- Enter: start continuous microphone conversation and streamed spoken replies.
+- S: stop audio and disconnect; Enter starts a new session.
+- P or Ctrl+Alt+Pause: pause; R resets pending approvals and permits a new explicit Start.
+- D: list audio devices while stopped.
+- Q or Ctrl+C: stop and exit.
+
+Microphone speech streams directly to Google and cannot be redacted locally before transmission. Audio is not recorded. Redacted/control-character-filtered transcripts appear in the terminal but are not persisted. Terminal events show connect/turn/error/usage activity plus a five-second streaming heartbeat. Session metadata is journaled without raw speech. No tool is declared for voice; unsolicited function calls are denied without effects. Computer actions and memory attachment are not yet integrated into voice.
+
+Sessions stop at ten minutes or twenty model-completed turns. Disconnect, device failure, Stop and session lock end audio without reconnecting automatically. Unlock requires R then Enter. Missing session monitoring disables cloud/audio; a conflicting hotkey leaves terminal controls available. Existing dollar-budget settings disable Live because matching voice rates are not configured; elapsed time and provider usage are not a spending guarantee.
+
+The terminal requires interactive Windows input. `--status` and `--list-audio-devices` work offline. `--gui` explicitly opens the old preview; its text-model instructions follow below. No startup behavior is enabled.
+
+## Legacy GUI: first Gemini connection
+
 
 1. Launch the application and choose **Set API key locally**. Enter your Gemini API key in that password field; it is stored through Windows Credential Manager. Saving it makes no API request.
 2. Keep the model ID `gemini-3.5-flash-lite`, or enter an exact ID available to your account. There is no silent switch to a latest-model alias.
