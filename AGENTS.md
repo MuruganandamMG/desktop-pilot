@@ -30,4 +30,3 @@
 - Before pushing, inspect staged files for accidental personal data/secrets, run relevant checks, and verify push success. Before a PR, fetch and check divergence and conflicts. Never automatically merge or rewrite a shared branch.
 - GitHub Actions runs checks on pushes and pull requests. Configure branch protection only if the account/repository supports it and authorization/API permissions allow it; do not claim protection exists just because CI exists.
 - Open a reviewable PR at a milestone. Keep branch/PR descriptions accurate and list untested live integrations. User has authorized feature-branch pushes; production release, merging, deletion, and startup activation remain separate decisions.
-
