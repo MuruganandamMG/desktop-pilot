@@ -23,3 +23,9 @@ Keep credentials/raw audio out of logs; no automatic capture before Start; stop 
 Ruling: the user's repeated instruction to replace the GUI and build voice is authorization to execute this plan inline; do not ask the same design question again. Full desktop/browser tools remain separate pending milestones. Raw microphone speech cannot be locally redacted before direct audio upload; disclose this at Start.
 
 Live acceptance remains pending; offline device enumeration and no-capture native startup are the checks performed. Reviewer findings were fixed with regression coverage.
+
+## Hands-free revision
+
+The user's correction explicitly authorizes automatic voice start on launch and spoken lifecycle commands. Replace ordinary keystrokes with the installed Windows English grammar recognizer (three exact Pilot commands) plus fixed local status speech, while retaining Ctrl+C for emergencies. Keep cloud conversation independent of the local command channel so spoken resume works without cloud transmission during pause. Include the inspectable PowerShell/.NET helper as package data; follow the host's execution policy without bypass or system changes.
+
+Tests: automatic startup, spoken pause/resume/exit, malformed helper events, no cloud start when a lock arrives during greeting, and all existing cleanup regressions. Run the helper's synthetic-wave self-test, which neither opens microphones nor speaks through speakers. Review lock/resume races, helper subprocess disposal and packaging. Hardware microphone sharing, headset conversation and actual Live access still require live acceptance.

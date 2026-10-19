@@ -24,19 +24,21 @@ Adding a key to `.env` does not save it to Credential Manager, mutate the proces
 
 ## Terminal voice (default)
 
-Close the old Desktop Pilot window first; all modes share one instance lock. Run `.\.venv\Scripts\python.exe -m desktop_agent` from `D:\Desktop agent`. No visible window or web server opens. Before Enter, no microphone or cloud connection starts.
+Close the old Desktop Pilot window first; all modes share one instance lock. Run `.\.venv\Scripts\python.exe -m desktop_agent` from `D:\Desktop agent`. Launch starts local speech controls and a Gemini Live voice session automatically. No visible window or web server opens; no Enter-to-start is required.
 
 Set `GEMINI_API_KEY` in the ignored root `.env`. `GEMINI_LIVE_MODEL` defaults to `gemini-3.8-live`; set an accessible native audio Live model if your account does not support it. No silent substitution occurs. The legacy text model setting is independent. Optional `VOICE_INPUT_DEVICE` and `VOICE_OUTPUT_DEVICE` are numeric device IDs from `.\.venv\Scripts\python.exe -m desktop_agent --list-audio-devices`. Blank selects Windows defaults. Use a headset: acoustic echo cancellation is not claimed.
 
-- Enter: start continuous microphone conversation and streamed spoken replies.
-- S: stop audio and disconnect; Enter starts a new session.
-- P or Ctrl+Alt+Pause: pause; R resets pending approvals and permits a new explicit Start.
-- D: list audio devices while stopped.
-- Q or Ctrl+C: stop and exit.
+- Speak normally: Gemini listens and replies aloud.
+- Say **Pilot pause**: disconnect cloud audio; Windows still listens locally for the three control phrases.
+- Say **Pilot resume**: reset pending approvals and start a fresh cloud conversation.
+- Say **Pilot exit**: close cloud audio, local recognition, playback and the app.
+- Ctrl+C or Ctrl+Alt+Pause remain emergency fallbacks.
+
+Local controls require an installed English Windows speech recognizer and use the Windows default microphone. Set it to the same input you use for conversation. Windows synthesis supplies short status announcements; Gemini supplies normal spoken answers. Use a headset to avoid speaker feedback. The fixed helper follows the computer's PowerShell execution policy, with no policy bypass or system configuration change. Missing recognition support or blocked helper execution prevents hands-free launch rather than silently dropping voice controls.
 
 Microphone speech streams directly to Google and cannot be redacted locally before transmission. Audio is not recorded. Redacted/control-character-filtered transcripts appear in the terminal but are not persisted. Terminal events show connect/turn/error/usage activity plus a five-second streaming heartbeat. Session metadata is journaled without raw speech. No tool is declared for voice; unsolicited function calls are denied without effects. Computer actions and memory attachment are not yet integrated into voice.
 
-Sessions stop at ten minutes or twenty model-completed turns. Disconnect, device failure, Stop and session lock end audio without reconnecting automatically. Unlock requires R then Enter. Missing session monitoring disables cloud/audio; a conflicting hotkey leaves terminal controls available. Existing dollar-budget settings disable Live because matching voice rates are not configured; elapsed time and provider usage are not a spending guarantee.
+Sessions stop at ten minutes or twenty model-completed turns. Disconnect, device failure, spoken pause and session lock end cloud audio without reconnecting automatically. Say **Pilot resume** to start again. Lock closes local recognition too; after unlock, local control listening returns but cloud audio requires a fresh spoken resume. Missing session monitoring disables cloud/audio. Existing dollar-budget settings disable Live because matching voice rates are not configured; elapsed time and provider usage are not a spending guarantee.
 
 The terminal requires interactive Windows input. `--status` and `--list-audio-devices` work offline. `--gui` explicitly opens the old preview; its text-model instructions follow below. No startup behavior is enabled.
 

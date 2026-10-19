@@ -161,3 +161,69 @@ def test_voice_journal_counts_connection_without_retaining_transcript(tmp_path, 
         assert task['state'] == 'PAUSED'
         assert store.model_request_count() == 1
         assert 'private spoken words' not in str(store.events(task['id']))
+
+
+def test_handsfree_controls_accept_only_local_exact_commands():
+    from desktop_agent.speech_controls import control_message
+    assert control_message(b'ready\r\n') == 'ready'
+    assert control_message(b'pause\n') == 'pause'
+    assert control_message(b'resume\n') == 'resume'
+    assert control_message(b'exit\n') == 'exit'
+    for bad in (b'pilot exit', b'please exit', b'unknown', b'\x1b[2Jexit'):
+        with pytest.raises(ValueError):
+            control_message(bad)
+
+
+@pytest.mark.parametrize('commands,starts,lock_on_greeting', [(['exit'], 1, False), (['pause', 'resume', 'exit'], 2, False), (['exit', 'exit'], 0, True)])
+def test_handsfree_starts_without_keyboard_and_local_exit_cleans_up(tmp_path, monkeypatch, commands, starts, lock_on_greeting):
+    from desktop_agent.voice import _terminal
+    from desktop_agent.store import Store
+    calls = []
+    queue = iter(commands)
+    callbacks = N(lock=None)
+    class Controls:
+        async def start(self):
+            calls.append('local_listening')
+        async def read(self):
+            command = next(queue, None)
+            if command is None:
+                await asyncio.sleep(60)
+            await asyncio.sleep(.05)
+            return command
+        async def say(self, key):
+            calls.append(key)
+            if lock_on_greeting and key == 'listening':
+                callbacks.lock()
+                asyncio.get_running_loop().call_later(.1, callbacks.unlock)
+        async def close(self):
+            calls.append('local_closed')
+    class Hooks:
+        def __init__(self, *args):
+            callbacks.lock = args[2]
+            callbacks.unlock = args[3]
+        def start(self):
+            return True, True
+        def close(self):
+            calls.append('hooks_closed')
+    async def session(*args, **kwargs):
+        calls.append('cloud_started')
+        await args[-1].wait()
+    class Client:
+        def __init__(self, **kw):
+            self.aio = N(aclose=self.aclose)
+        async def aclose(self):
+            pass
+        def close(self):
+            pass
+    monkeypatch.setattr('desktop_agent.speech_controls.VoiceControls', Controls)
+    monkeypatch.setattr('desktop_agent.voice.get_api_key', lambda: 'fake')
+    monkeypatch.setattr('desktop_agent.voice.voice_settings', lambda: ('fake-model', None, None))
+    monkeypatch.setattr('desktop_agent.voice.journaled_session', session)
+    monkeypatch.setattr('google.genai.Client', Client)
+    app = N(processEvents=lambda: None, installNativeEventFilter=lambda h: None,
+            removeNativeEventFilter=lambda h: None)
+    with Store(tmp_path / 'tasks.sqlite') as store:
+        assert asyncio.run(_terminal(app, N(winId=lambda: 1), store, tmp_path, Hooks)) == 0
+    assert calls.count('cloud_started') == starts
+    assert 'goodbye' in calls
+    assert 'local_closed' in calls and 'hooks_closed' in calls

@@ -1,7 +1,13 @@
 # Desktop Pilot terminal voice agent
 
-Status: design direction approved in chat; written specification awaiting review.
+Status: implemented in stages; latest hands-free instruction below supersedes the earlier keyboard Start/Stop flow.
 Date: 19 October 2026.
+
+## Latest user correction: hands-free interaction
+
+Launching the terminal app is now the user's explicit action to start microphone conversation and cloud audio. There is no Enter-to-start or ordinary keyboard control requirement. Windows' already installed English speech recognizer listens locally for "Pilot pause", "Pilot resume" and "Pilot exit"; Gemini Live handles general questions and spoken replies. No speech model is downloaded. Windows speech synthesis supplies fixed local status notifications. Pause closes cloud audio but retains local command listening on the Windows default microphone. Exit releases both. Lock stops both; unlock permits local command listening only, and requires a fresh spoken resume before cloud audio. Voice commands never authorize file/browser actions. Ctrl+C remains emergency fallback. Existing text/GUI alternatives are not the default interaction.
+
+This overrides the older explicit Start requirement, terminal keystroke controls and voice-deferral language below. Raw microphone speech cannot be redacted before cloud upload. First live acceptance uses a headset and Windows default input; speakerphone echo cancellation and arbitrary control languages are not claimed. Offline synthetic speech verified all three Windows recognition grammar phrases, without microphone capture, audible playback or cloud traffic. Real hardware/account acceptance remains pending.
 
 ## Outcome and scope
 

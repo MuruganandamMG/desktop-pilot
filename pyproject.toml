@@ -15,6 +15,9 @@ test = ["pytest==9.1.1", "pytest-qt==4.5.0"]
 [project.scripts]
 desktop-pilot = "desktop_agent.__main__:main"
 
+[tool.setuptools.package-data]
+desktop_agent = ["speech_controls.ps1"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

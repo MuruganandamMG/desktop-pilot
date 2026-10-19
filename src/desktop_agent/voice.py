@@ -1,4 +1,4 @@
-"""Terminal-first continuous voice. No capture or cloud connection before Start."""
+"""Hands-free voice conversation with local Windows spoken controls."""
 
 import asyncio
 from collections import deque
@@ -153,7 +153,7 @@ async def stream_session(client, model, devices, stopped, *, audio_module=None, 
     try:
         if stopped.is_set():
             return
-        log('CONNECTED', f'{time.monotonic() - started:.2f}s. Listening continuously; S stops, Q exits.')
+        log('CONNECTED', f'{time.monotonic() - started:.2f}s. Listening continuously. Say Pilot pause or Pilot exit.')
         with ExitStack() as stack:
             mic = stack.enter_context(sd.RawInputStream(samplerate=16000, channels=1, dtype='int16',
                 blocksize=320, device=devices[0], callback=lambda data, frames, timing, status: audio.capture(data, status)))
@@ -189,7 +189,7 @@ async def stream_session(client, model, devices, stopped, *, audio_module=None, 
                     while audio.playback and not stopped.is_set() and time.monotonic() < deadline:
                         await asyncio.sleep(.01)
                 if not done:
-                    log('SESSION LIMIT', 'Ten minutes reached. Press Enter to explicitly start a new session.')
+                    log('SESSION LIMIT', 'Ten minutes reached. Say Pilot resume for a fresh conversation.')
             finally:
                 for task in tasks:
                     task.cancel()
@@ -270,14 +270,18 @@ def run(store, data_path):
 
 
 async def _terminal(app, receiver, store, data_path, events_class):
-    import msvcrt
     from google import genai
     from google.genai import types
+    from .speech_controls import VoiceControls
     store.interrupt_inflight()
     model, input_device, output_device = voice_settings()
     settings = load_settings(data_path / 'settings.json')
     if settings.budget_usd:
         event('BUDGET', 'Live rates are not configured; voice disabled under the dollar cap. No request made.')
+        return 1
+    key_value = get_api_key()
+    if not key_value:
+        event('KEY MISSING', 'Set GEMINI_API_KEY in the ignored project .env before launching.')
         return 1
     stopped = asyncio.Event()
     paused, locked = False, False
@@ -285,41 +289,100 @@ async def _terminal(app, receiver, store, data_path, events_class):
     store.db.execute("PRAGMA busy_timeout=100")
     active = None
     client = None
+    controls = None
+    listening = None
+    pending_command = None
     def pause():
         nonlocal paused, approvals_dirty
         paused = approvals_dirty = True
         stopped.set()
-        event('PAUSED', 'Audio stopping. Pending approvals must be reset before Resume.')
+        event('PAUSED', 'Cloud audio stopping. Local voice controls remain available while unlocked.')
     def session_lock():
-        nonlocal locked
+        nonlocal locked, pending_command
         locked = True
+        pending_command = None
         pause()
     def session_unlock():
         nonlocal locked
         locked = False
-        event('UNLOCKED', 'Still paused. Press R to resume, then Enter to start.')
+        event('UNLOCKED', 'Still paused. Say Pilot resume when local controls are ready.')
     hooks = events_class(int(receiver.winId()), pause, session_lock, session_unlock)
     app.installNativeEventFilter(hooks)
+    async def pump_events():
+        while True:
+            app.processEvents()
+            await asyncio.sleep(.02)
+    pump = asyncio.create_task(pump_events())
     try:
         hotkey, session_guard = hooks.start()
-        event('DESKTOP PILOT', 'VOICE MODE | no visible window | no web server')
+        event('DESKTOP PILOT', 'HANDS-FREE VOICE | launching starts listening | no visible window')
         event('MODEL', model)
-        event('PRIVACY', 'Start streams continuous microphone audio to Google until Stop. Audio cannot be redacted before upload. No local recording.')
-        event('CONTROLS', 'Enter=start | S=stop | P=pause | R=resume | D=list devices | Q=quit | Ctrl+C=exit')
-        event('AUDIO', f'input={input_device if input_device is not None else "Windows default"}, output={output_device if output_device is not None else "Windows default"}. Use a headset.')
-        event('SAFETY', f'Ctrl+Alt+Pause={"ready" if hotkey else "unavailable; use S/P/Ctrl+C"}; lock monitoring={session_guard}')
+        event('PRIVACY', 'Microphone audio streams to Google while active. Pilot pause disconnects cloud audio; Windows still listens locally for controls. No recording.')
+        event('SAY', 'Pilot pause | Pilot resume | Pilot exit. Ctrl+C is an emergency fallback.')
+        event('AUDIO', 'Use a headset and the Windows default microphone for spoken controls.')
+        event('SAFETY', f'Ctrl+Alt+Pause={"ready" if hotkey else "unavailable; use Ctrl+C"}; lock monitoring={session_guard}')
         if not session_guard:
             event('DISABLED', 'Session monitoring unavailable. No microphone or cloud connection started.')
             return 1
+        client = genai.Client(api_key=key_value, vertexai=False, enterprise=False,
+            http_options=types.HttpOptions(base_url='https://generativelanguage.googleapis.com', api_version='v1beta'))
+        def start():
+            nonlocal active, stopped
+            if locked or paused:
+                return
+            stopped = asyncio.Event()
+            active = asyncio.create_task(journaled_session(store, client, model, (input_device, output_device), stopped))
+        async def finish_active():
+            nonlocal active
+            stopped.set()
+            if active:
+                try:
+                    await asyncio.wait_for(asyncio.shield(active), timeout=8)
+                except TimeoutError:
+                    event('STOP WARNING', 'Session shutdown deadline reached; cancelling local work.')
+                    active.cancel()
+                    await asyncio.gather(active, return_exceptions=True)
+                except Exception as exc:
+                    event('VOICE ERROR', error_message(exc))
+                active = None
+        controls = VoiceControls()
+        await controls.start()
+        listening = asyncio.create_task(controls.read())
+        app.processEvents()
+        if not locked and not paused:
+            await controls.say('listening')
+            start()
+        was_locked = False
         while True:
-            app.processEvents()
+            if locked:
+                pending_command = None
+                stopped.set()
+                if controls:
+                    if listening:
+                        listening.cancel()
+                        await asyncio.gather(listening, return_exceptions=True)
+                        listening = None
+                    await controls.close()
+                    controls = None
+                was_locked = True
+            elif was_locked:
+                controls = VoiceControls()
+                await controls.start()
+                listening = asyncio.create_task(controls.read())
+                was_locked = False
             if active and active.done():
                 try:
                     active.result()
                 except Exception as exc:
                     event('VOICE ERROR', error_message(exc))
+                    if controls:
+                        await controls.say('failed')
+                else:
+                    if not paused and controls:
+                        await controls.say('limit')
                 active = None
-                event('READY', 'Press Enter for a new session or Q to quit.')
+                paused = True
+                event('STANDBY', 'Say Pilot resume for another conversation; Pilot exit to quit.')
             if paused:
                 stopped.set()
             if approvals_dirty and not active:
@@ -328,55 +391,53 @@ async def _terminal(app, receiver, store, data_path, events_class):
                 except Exception:
                     event('JOURNAL ERROR', 'Approval reset failed. Resume remains blocked until a successful retry.')
                 approvals_dirty = False
-            if msvcrt.kbhit():
-                key = msvcrt.getwch().lower()
-                if key in ('\x00', '\xe0'):
-                    if msvcrt.kbhit():
-                        msvcrt.getwch()
-                    continue
-                if key in ('q', '\x03', '\x1a'):
-                    break
-                if key in ('s', 'p'):
-                    stopped.set()
-                    event('STOP', 'Closing audio and API session.')
-                    if key == 'p':
-                        pause()
-                elif key == 'r' and not locked and not active:
-                    try:
-                        store.invalidate_approvals()
-                    except Exception:
-                        event('JOURNAL ERROR', 'Resume blocked. Approval reset failed.')
-                    else:
-                        paused = False
-                        event('READY', 'Press Enter to start a fresh conversation.')
-                elif key == 'd' and not active:
-                    list_devices()
-                elif key == '\r' and not active and not paused and not locked:
-                    try:
-                        key_value = get_api_key()
-                        if not key_value:
-                            event('KEY MISSING', 'Set GEMINI_API_KEY in the ignored project .env. Never paste it into chat.')
-                            continue
-                        if client is None:
-                            client = genai.Client(api_key=key_value, vertexai=False, enterprise=False,
-                                http_options=types.HttpOptions(base_url='https://generativelanguage.googleapis.com', api_version='v1beta'))
-                        stopped = asyncio.Event()
-                        active = asyncio.create_task(journaled_session(store, client, model, (input_device, output_device), stopped))
-                    except Exception as exc:
-                        event('CONFIG ERROR', error_message(exc))
+            if listening and listening.done():
+                pending_command = listening.result()
+                listening = asyncio.create_task(controls.read())
+            if pending_command == 'exit':
+                await finish_active()
+                if controls:
+                    await controls.say('goodbye')
+                break
+            if pending_command == 'pause':
+                pause()
+                await finish_active()
+                if controls:
+                    await controls.say('paused')
+                pending_command = None
+            if pending_command == 'resume' and not locked and not active:
+                try:
+                    store.invalidate_approvals()
+                except Exception:
+                    event('JOURNAL ERROR', 'Resume blocked. Approval reset failed.')
+                    if controls:
+                        await controls.say('failed')
+                else:
+                    paused = False
+                    await controls.say('resumed')
+                    start()
+                pending_command = None
+            elif pending_command == 'resume':
+                pending_command = None
             await asyncio.sleep(.02)
     finally:
         stopped.set()
-        if active:
-            active.cancel()
-            try:
-                await active
-            except (asyncio.CancelledError, Exception):
-                pass
-        if client:
-            await client.aio.aclose()
-            client.close()
-        app.removeNativeEventFilter(hooks)
-        hooks.close()
+        try:
+            if active:
+                active.cancel()
+                await asyncio.gather(active, return_exceptions=True)
+            if listening:
+                listening.cancel()
+                await asyncio.gather(listening, return_exceptions=True)
+            if controls:
+                await controls.close()
+            if client:
+                await client.aio.aclose()
+                client.close()
+        finally:
+            pump.cancel()
+            await asyncio.gather(pump, return_exceptions=True)
+            app.removeNativeEventFilter(hooks)
+            hooks.close()
     event('EXIT', 'Audio, network and native registrations released.')
     return 0
