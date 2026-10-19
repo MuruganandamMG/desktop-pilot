@@ -38,6 +38,7 @@ class TaskState(StrEnum):
 
 
 class Effect(StrEnum):
+    LAUNCH = "LAUNCH"
     READ = "READ"
     WRITE = "WRITE"
     REMOVE = "REMOVE"

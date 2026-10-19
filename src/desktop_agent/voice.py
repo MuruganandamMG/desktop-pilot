@@ -76,7 +76,7 @@ class AudioBuffer:
             self.playback.clear()
 
 
-async def receive(session, audio, log=event):
+async def receive(session, audio, log=event, tool_handler=None):
     turns = 0
     while True:
         received = False
@@ -88,9 +88,9 @@ async def receive(session, audio, log=event):
                 # No desktop adapter is enabled for voice; never dispatch an unsolicited function.
                 from google.genai import types
                 replies = [types.FunctionResponse(id=fc.id, name=fc.name,
-                           response={'error': 'Computer actions are not enabled in voice mode.'})
+                           response=tool_handler(fc) if tool_handler else {'error': 'Computer actions are not enabled in this session.'})
                            for fc in response.tool_call.function_calls or []]
-                log('TOOL DENIED', 'No effect performed; voice conversation cannot approve operations.')
+                log('TOOL RESULT', 'Local policy handled the request; see the receipt.')
                 await session.send_tool_response(function_responses=replies)
             content = response.server_content
             if content:
@@ -122,7 +122,7 @@ async def receive(session, audio, log=event):
             raise ConnectionError('Empty stream')
 
 
-async def stream_session(client, model, devices, stopped, *, audio_module=None, log=event):
+async def stream_session(client, model, devices, stopped, *, audio_module=None, log=event, tool_handler=None, declarations=()):
     from google.genai import types
     if stopped.is_set():
         return
@@ -131,10 +131,12 @@ async def stream_session(client, model, devices, stopped, *, audio_module=None, 
     sd = audio_module
     audio = AudioBuffer()
     config = types.LiveConnectConfig(response_modalities=['AUDIO'],
+        tools=[types.Tool(function_declarations=[types.FunctionDeclaration(**d) for d in declarations])] if declarations else None,
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
         system_instruction=('You are Desktop Pilot, a concise voice assistant. Respond naturally in the user\'s language. '
-                            'No computer-control tools are enabled. Never claim you changed files, opened apps, or performed actions. '
+                            'Use declared tools for supported app opening. Never invent computer actions. '
+                            'A launch receipt does not verify window visibility or focus. No shell, deletion, or file changes are available. '
                             'Never request API keys or passwords.'))
     sd.check_input_settings(device=devices[0], channels=1, dtype='int16', samplerate=16000)
     sd.check_output_settings(device=devices[1], channels=1, dtype='int16', samplerate=24000)
@@ -183,7 +185,7 @@ async def stream_session(client, model, devices, stopped, *, audio_module=None, 
                 while True:
                     await asyncio.sleep(5)
                     log('LIVE', f'{time.monotonic() - started:.0f}s | mic chunks sent={audio.sent} | played bytes={audio.played}')
-            tasks = [asyncio.create_task(send()), asyncio.create_task(receive(session, audio, log)),
+            tasks = [asyncio.create_task(send()), asyncio.create_task(receive(session, audio, log, tool_handler)),
                      asyncio.create_task(stopped.wait()), asyncio.create_task(heartbeat())]
             try:
                 done, _ = await asyncio.wait(tasks, timeout=600, return_when=asyncio.FIRST_COMPLETED)
@@ -212,8 +214,28 @@ async def stream_session(client, model, devices, stopped, *, audio_module=None, 
 
 
 async def journaled_session(store, client, model, devices, stopped):
+    from .apps import app_registry, installed_apps
+    from .approvals import ApprovalManager
+    from .executor import Executor
+    from .contracts import Action, CancelToken
+    registry = app_registry(installed_apps())
+    executor = Executor(store, registry, ApprovalManager(store))
     task_id = store.create_task('Voice conversation')
     store.begin_run(task_id)
+    calls = 0
+    def handle(fc):
+        nonlocal calls
+        calls += 1
+        if stopped.is_set() or calls > 20:
+            return {'error': 'Task stopped or tool limit reached'}
+        try:
+            proposal = executor.prepare(Action(fc.id, task_id, fc.name, fc.args or {}))
+            result = executor.execute(proposal, None, CancelToken())
+            event('APP RECEIPT', result.summary)
+            return {'status': result.status, 'summary': result.summary,
+                    'observed_state': result.evidence.get('observed_state')}
+        except Exception:
+            return {'error': 'App request denied, duplicated, changed, or unavailable; no retry was performed'}
     def log(kind, detail=''):
         if kind == 'API CONNECT':
             store.append_event(task_id, {'kind': 'model_usage', 'transport': 'live',
@@ -222,7 +244,8 @@ async def journaled_session(store, client, model, devices, stopped):
             store.append_event(task_id, {'kind': 'voice_usage', 'summary': safe_text(detail)})
         event(kind, detail)
     try:
-        await stream_session(client, model, devices, stopped, log=log)
+        await stream_session(client, model, devices, stopped, log=log, tool_handler=handle,
+                             declarations=registry.declarations())
     except asyncio.CancelledError:
         store.transition(task_id, TaskState.CANCELLED)
         raise

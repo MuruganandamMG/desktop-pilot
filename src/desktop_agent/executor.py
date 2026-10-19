@@ -30,7 +30,7 @@ class Executor:
             current = self.registry.prepare(proposal.action)
             if current != proposal:
                 raise PermissionError("Proposal or target changed; obtain a fresh preview")
-            if current.effect != Effect.READ:
+            if current.effect not in (Effect.READ, Effect.LAUNCH):
                 self.approvals.consume(approval_id, current)
             if cancel.cancelled:
                 raise PermissionError("Task was cancelled")

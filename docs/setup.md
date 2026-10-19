@@ -24,6 +24,8 @@ Adding a key to `.env` does not save it to Credential Manager, mutate the proces
 
 ## Terminal voice (default)
 
+Voice can now open detected **Notepad, Calculator, Chrome, Edge, VS Code and Obsidian**. Say "Open Chrome" or "Open VS Code". Only apps found in known installation locations are offered. Launch receipts do not certify window visibility or focus. Arbitrary shell commands, app arguments, file changes, removals and unsupported app control remain unavailable. Restart an older running agent to load the new tool declarations.
+
 Close the old Desktop Pilot window first; all modes share one instance lock. Run `.\.venv\Scripts\python.exe -m desktop_agent` from `D:\Desktop agent`. Launch starts local speech controls and a Gemini Live voice session automatically. No visible window or web server opens; no Enter-to-start is required.
 
 Set `GEMINI_API_KEY` in the ignored root `.env`. `GEMINI_LIVE_MODEL` defaults to `gemini-3.8-live`; set an accessible native audio Live model if your account does not support it. No silent substitution occurs. The legacy text model setting is independent. Optional `VOICE_INPUT_DEVICE` and `VOICE_OUTPUT_DEVICE` are numeric device IDs from `.\.venv\Scripts\python.exe -m desktop_agent --list-audio-devices`. Blank selects Windows defaults. Use a headset: acoustic echo cancellation is not claimed.
