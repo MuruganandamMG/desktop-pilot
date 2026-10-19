@@ -42,7 +42,7 @@ def _usage(response) -> TokenUsage:
     counts = (value.prompt_token_count, output, value.thoughts_token_count, value.tool_use_prompt_token_count)
     if any(count is not None and (type(count) is not int or count < 0) for count in counts):
         return TokenUsage()
-    return TokenUsage(value.prompt_token_count,
+    return TokenUsage(None if value.prompt_token_count is None else value.prompt_token_count + (value.tool_use_prompt_token_count or 0),
                       None if output is None else output + (value.thoughts_token_count or 0))
 
 
@@ -86,6 +86,7 @@ class GeminiClient:
             max_output_tokens=self.settings.max_output_tokens,
             candidate_count=1,
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            automatic_continuation=False,
             tools=[types.Tool(function_declarations=[types.FunctionDeclaration(**tool) for tool in tools])] if tools else None,
             tool_config=types.ToolConfig(function_calling_config=types.FunctionCallingConfig(mode="ANY")) if force_tool else None,
         )
@@ -134,8 +135,15 @@ class GeminiClient:
                     if not retryable or attempt + 1 == allowance:
                         raise _api_error(exc, attempts[0]) from None
                     await asyncio.sleep(self.retry_delay * (2 ** attempt) * random.uniform(0.8, 1.2))
+                except Exception:
+                    # SDK decoding can fail after a billed response; count it and never retry.
+                    raise ModelError("invalid_response", "Gemini response could not be decoded safely", attempts=attempts[0]) from None
 
     def _parse(self, response, allowed, usage, attempts):
+        feedback = response.prompt_feedback
+        blocked = feedback is not None and feedback.block_reason not in (None, "BLOCK_REASON_UNSPECIFIED")
+        if blocked or any(candidate.finish_reason in {"SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY"} for candidate in response.candidates or []):
+            raise ModelError("blocked", "Gemini blocked this response; no escalation or tool execution attempted", attempts=attempts, usage=usage)
         if not response.candidates or len(response.candidates) != 1:
             raise ValueError("One complete candidate required")
         candidate = response.candidates[0]

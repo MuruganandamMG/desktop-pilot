@@ -22,6 +22,7 @@ _NEXT = {
 
 class Store:
     def __init__(self, path: Path):
+        self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, timeout=10)
         self.db.row_factory = sqlite3.Row

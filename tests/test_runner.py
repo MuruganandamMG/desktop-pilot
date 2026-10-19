@@ -65,6 +65,8 @@ def test_tool_loop_preserves_provider_call_ids_and_never_persists_prompt(system)
     assert "secret" not in model.requests[0][0].text
     assert "private command" not in str(system.events(task))
     assert system.model_request_count() == 2
+    assert result.evidence["input_tokens"] == 200
+    assert result.evidence["output_tokens"] == 20
 
 
 def test_all_write_proposals_pause_without_execution(system):
@@ -182,3 +184,34 @@ def test_another_active_task_blocks_a_new_run(system):
     task = system.create_task("second")
     assert run.run(task, "second", CancelToken()).status == "failed"
     assert not model.requests
+
+
+def test_probe_verifies_one_read_tool_without_an_extra_request(system):
+    model = Model(turn(ToolCall("probe", "runtime_status", {})))
+    run, effects = runner(system, model)
+    task = system.create_task("probe")
+    result = run.run(task, "probe", CancelToken(), probe=True)
+    assert result.status == "verified"
+    assert result.evidence["function_calling"] is True
+    assert model.requests[0][3]["force_tool"] is True
+    assert len(model.requests) == 1 and len(effects) == 1
+
+
+def test_configured_budget_disables_retries_with_unknown_potential_cost(system):
+    settings = Settings(budget_usd="1", rate_model_id="gemini-3.5-flash-lite", input_rate_usd="1", output_rate_usd="2", rate_date="2026-10-19")
+    model = Model(ModelError("timeout", "Response lost", attempts=1))
+    run, _ = runner(system, model, settings)
+    task = system.create_task("status")
+    assert run.run(task, "status", CancelToken()).status == "partial"
+    assert model.requests[0][3]["request_allowance"] == 1
+    assert system.model_request_count() == 1
+
+
+def test_probe_never_certifies_a_different_fallback_model(system):
+    model = Model(ModelError("invalid_response", "Invalid response", attempts=1), turn(ToolCall("p", "runtime_status", {})))
+    run, _ = runner(system, model, Settings(stronger_model_id="chosen-flash-model"))
+    task = system.create_task("probe")
+    result = run.run(task, "probe", CancelToken(), probe=True)
+    assert result.status == "partial"
+    assert len(model.requests) == 1
+    assert result.evidence["model_id"] == "gemini-3.5-flash-lite"

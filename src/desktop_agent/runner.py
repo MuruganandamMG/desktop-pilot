@@ -32,7 +32,7 @@ class Runner:
             return None
         return (Decimal(self.settings.input_rate_usd) * usage.input_tokens + Decimal(self.settings.output_rate_usd) * usage.output_tokens) / 1_000_000
 
-    def run(self, task_id: str, command: str, cancel: CancelToken) -> Result:
+    def run(self, task_id: str, command: str, cancel: CancelToken, *, probe=False) -> Result:
         try:
             context = request_context(command, self.context)
             self.store.begin_run(task_id)
@@ -40,17 +40,23 @@ class Runner:
             return Result("failed", str(exc), {})
         history, requests, actions = [], 0, 0
         spent, unknown_cost = Decimal(0), False
+        input_tokens, output_tokens, unknown_tokens = 0, 0, False
         model_id, escalated = self.settings.model_id, False
         cap = Decimal(self.settings.budget_usd) if self.settings.budget_usd else None
 
         def stop(message, *, state=TaskState.PAUSED, status="partial"):
             self.store.transition(task_id, state)
             return Result(status, message, {"model_requests": requests, "tool_actions": actions,
+                "model_id": model_id,
+                "input_tokens": None if unknown_tokens else input_tokens, "output_tokens": None if unknown_tokens else output_tokens,
                 "estimate_usd": None if unknown_cost else str(spent) if self.settings.rate_date else None})
 
         def record(usage, attempts):
-            nonlocal requests, spent, unknown_cost
+            nonlocal requests, spent, unknown_cost, input_tokens, output_tokens, unknown_tokens
             requests += attempts
+            unknown_tokens = unknown_tokens or usage.input_tokens is None or usage.output_tokens is None or attempts > 1
+            input_tokens += usage.input_tokens or 0
+            output_tokens += usage.output_tokens or 0
             estimate = self._estimate(model_id, usage)
             if attempts > 1:
                 estimate = None  # Failed attempts can have unreported billable usage.
@@ -71,12 +77,12 @@ class Runner:
                 return stop("Per-task estimated budget reached or usage/rates unavailable; no new request sent")
             try:
                 turn = self.model.next_step(context, history, self.executor.registry.declarations(), model_id,
-                    request_allowance=min(3, self.settings.max_model_calls - requests), cancel=cancel)
+                    request_allowance=min(1 if cap is not None else 3, self.settings.max_model_calls - requests), cancel=cancel, force_tool=probe)
             except ModelError as exc:
                 record(exc.usage, exc.attempts)
                 if cancel.cancelled or exc.kind == "cancelled":
                     return stop("Task cancelled; an in-flight cloud request may still be billed", state=TaskState.CANCELLED, status="cancelled")
-                if exc.kind == "invalid_response" and self.settings.stronger_model_id and not escalated and actions == 0:
+                if exc.kind == "invalid_response" and self.settings.stronger_model_id and not escalated and actions == 0 and not probe:
                     model_id, escalated = self.settings.stronger_model_id, True
                     continue
                 return stop(str(exc))
@@ -84,11 +90,15 @@ class Runner:
             if cancel.cancelled:
                 return stop("Task cancelled after model response; no subsequent action executed", state=TaskState.CANCELLED, status="cancelled")
             if not turn.calls:
+                if probe:
+                    return stop("Model probe did not return a structured function call", state=TaskState.FAILED, status="failed")
                 self.store.transition(task_id, TaskState.EXECUTING)
                 self.store.transition(task_id, TaskState.VERIFYING)
                 self.store.transition(task_id, TaskState.SUCCEEDED)
                 return Result("verified", "Gemini replied; model text is advice, not verification of computer changes", {
                     "answer": redact(turn.text), "model_requests": requests, "tool_actions": actions,
+                    "model_id": model_id,
+                    "input_tokens": None if unknown_tokens else input_tokens, "output_tokens": None if unknown_tokens else output_tokens,
                     "estimate_usd": None if unknown_cost else str(spent) if self.settings.rate_date else None,
                 })
             if actions + len(turn.calls) > self.settings.max_tool_actions:
@@ -118,6 +128,14 @@ class Runner:
                 self.store.transition(task_id, TaskState.VERIFYING)
                 if result.status != "verified":
                     return stop("Tool outcome is not verified; inspect retained receipts before continuing")
+                if probe:
+                    self.store.transition(task_id, TaskState.SUCCEEDED)
+                    return Result("verified", "Configured model returned a structured call; local read-only tool verified", {
+                        "function_calling": True, "model_requests": requests, "tool_actions": actions,
+                        "model_id": model_id,
+                        "input_tokens": None if unknown_tokens else input_tokens, "output_tokens": None if unknown_tokens else output_tokens,
+                        "estimate_usd": None if unknown_cost else str(spent) if self.settings.rate_date else None,
+                    })
                 if not self.executor.registry.tool(call.name).cloud_safe:
                     return stop("Tool completed locally; its output needs source approval before cloud upload")
                 observation = redact(json.dumps({"summary": result.summary, "evidence": plain(result.evidence)}, ensure_ascii=False))[:12000]

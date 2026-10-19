@@ -162,3 +162,67 @@ def test_cancellation_stops_an_inflight_request():
     with pytest.raises(ModelError) as caught:
         client.next_step(ContextBundle("hello", ()), [], [], "gemini-3.5-flash-lite", cancel=cancel)
     assert caught.value.kind == "cancelled"
+
+
+def test_malformed_sdk_payload_is_sanitized_and_accounts_for_the_request():
+    requests = []
+
+    async def handle(request):
+        requests.append(request)
+        return httpx.Response(200, json={"usageMetadata": {"promptTokenCount": {"bad": "private-payload"}}})
+
+    def factory(**kwargs):
+        kwargs["http_options"].httpx_async_client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        return genai.Client(**kwargs)
+
+    client = GeminiClient(Settings(), api_key="test-key", client_factory=factory)
+    with pytest.raises(ModelError) as caught:
+        client.next_step(ContextBundle("hello", ()), [], [], "gemini-3.5-flash-lite")
+    assert caught.value.kind == "invalid_response"
+    assert caught.value.attempts == 1
+    assert caught.value.usage.input_tokens is None
+    assert "private-payload" not in str(caught.value)
+    assert len(requests) == 1
+
+
+def test_separate_tool_prompt_usage_is_included_in_input_estimate():
+    item = response()
+    item.usage_metadata = types.GenerateContentResponseUsageMetadata(prompt_token_count=10, tool_use_prompt_token_count=100, candidates_token_count=5, total_token_count=115)
+    api = FakeAPI(item)
+    client = GeminiClient(Settings(), api_key="test-key", client_factory=api.factory)
+    usage = client.next_step(ContextBundle("hello", ()), [], [], "gemini-3.5-flash-lite").usage
+    assert usage.input_tokens == 110
+    assert usage.output_tokens == 5
+
+
+def test_sdk_does_not_follow_unaccounted_automatic_continuations():
+    requests = []
+
+    async def handle(request):
+        requests.append(request)
+        candidate = {"content": {"role": "model", "parts": [{"text": "Partial"}]}, "finishReason": "CONTINUATION", "continuationToken": "c3RhdGU="}
+        if len(requests) > 1:
+            candidate = {"content": {"role": "model", "parts": [{"text": "Done"}]}, "finishReason": "STOP"}
+        return httpx.Response(200, json={"candidates": [candidate], "usageMetadata": {"promptTokenCount": 4, "candidatesTokenCount": 1}})
+
+    def factory(**kwargs):
+        kwargs["http_options"].httpx_async_client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        return genai.Client(**kwargs)
+
+    client = GeminiClient(Settings(), api_key="test-key", client_factory=factory)
+    with pytest.raises(ModelError) as caught:
+        client.next_step(ContextBundle("hello", ()), [], [], "gemini-3.5-flash-lite")
+    assert caught.value.kind == "invalid_response"
+    assert caught.value.attempts == 1
+    assert len(requests) == 1
+
+
+def test_provider_safety_block_is_not_treated_as_invalid_reasoning():
+    item = response()
+    item.candidates[0].finish_reason = types.FinishReason.SAFETY
+    api = FakeAPI(item)
+    client = GeminiClient(Settings(), api_key="test-key", client_factory=api.factory)
+    with pytest.raises(ModelError) as caught:
+        client.next_step(ContextBundle("hello", ()), [], [], "gemini-3.5-flash-lite")
+    assert caught.value.kind == "blocked"
+    assert caught.value.usage.input_tokens == 8
