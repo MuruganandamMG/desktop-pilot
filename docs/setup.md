@@ -12,7 +12,15 @@ python -m venv .venv
 
 The native window is a read-only cloud preview. It searches local memory and can call Gemini after an explicit preview and consent. Only the constant `runtime_status` tool is registered; it does not inspect or change Windows, browsers, or files. No removal tools or startup registration are enabled. Raw prompts and model answers are not retained in the journal; task states, action receipts and usage metadata are retained.
 
-Nonsecret settings and the SQLite journal live under `%LOCALAPPDATA%\DesktopAgent`. The `vault_path` setting points to the private vault. No API key is needed for local search or `--status`. Never paste a real key into tests, a GitHub issue, a chat, the vault, or repository files.
+Nonsecret settings and the SQLite journal live under `%LOCALAPPDATA%\DesktopAgent`. The `vault_path` setting points to the private vault. No API key is needed for local search or `--status`. Never paste a real key into tests, a GitHub issue, a chat, the vault, or tracked repository files.
+
+## Local .env configuration
+
+The development checkout loads only `GEMINI_API_KEY` from its root `.env`, next to `pyproject.toml`. Lookup order is the process environment, then that project file, then Windows Credential Manager. Empty values fall through to the next source. A nonempty invalid value fails instead of silently selecting another credential.
+
+The ignored local `.env` is ready for your key; `.env.example` is a tracked empty template. Only `GEMINI_API_KEY` is read. Quotes, optional `export`, and inline comments are supported; interpolation, command execution, parent-directory search, and loading unrelated variables are not. Malformed, duplicated, oversized or reparse/symlink key files fail with a generic error that excludes secret values. The file limit is 64 KiB and the key limit is 4,096 characters.
+
+Adding a key to `.env` does not save it to Credential Manager, mutate the process environment, or trigger an API call. The GUI key-save action still writes to Credential Manager; remove/clear an overriding environment setting yourself if you intend the saved credential to be used. This plaintext development file is not an encrypted credential store. Installed packages without the source checkout's `pyproject.toml` use process variables/Credential Manager rather than searching working directories for `.env`.
 
 ## First Gemini connection
 
@@ -42,7 +50,7 @@ The preview searches these named folders on demand, reads at most 1,000 files, e
 
 ## Git workflow
 
-`main` contains bootstrap documentation. Work is isolated on `feat/foundation-workflow`; each coherent tested change is committed and pushed. A draft pull request tracks this milestone. Future work should fetch current branches, inspect the working tree, and follow `AGENTS.md`. Never force push or automatically merge. Hosted CI checks run for pushes/PRs; branch-protection rules are not configured by this application.
+PR #1 was merged and the user now authorizes development directly on `main` in `D:\Desktop agent`. Each coherent tested change is committed and pushed to `origin/main`. Fetch and inspect divergence/local edits before work; follow `AGENTS.md`. Existing feature worktrees are retained but are not the active checkout. Never force push or automatically rewrite shared history. Hosted CI checks run for pushes/PRs; branch-protection rules are not configured by this application.
 
 When a new checkout is used, recreate its environment; do not commit/copy `.venv`, local settings, history, or the vault. Normal Python bytecode and test caches are ignored. Do not run cleanup tools merely to make Git status look clean.
 

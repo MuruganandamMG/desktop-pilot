@@ -136,6 +136,17 @@ def test_missing_key_does_not_create_a_client(monkeypatch):
         GeminiClient(Settings())
 
 
+def test_invalid_local_key_configuration_has_a_safe_diagnostic(monkeypatch):
+    def invalid():
+        raise ValueError("private-source-value")
+    monkeypatch.setattr("desktop_agent.model.get_api_key", invalid)
+    with pytest.raises(ModelError) as caught:
+        GeminiClient(Settings())
+    assert caught.value.kind == "credential_config"
+    assert ".env" in str(caught.value)
+    assert "private-source-value" not in str(caught.value)
+
+
 def test_request_deadline_cancels_slow_transport():
     class SlowAPI(FakeAPI):
         async def generate(self, **request):

@@ -177,7 +177,7 @@ class MainWindow(QMainWindow):
         except Exception:
             self.message.setText("API key could not be saved. Check Windows Credential Manager; no cloud request was made.")
         else:
-            self.message.setText("API key saved locally. Use the model test to check account access; no request has been made yet.")
+            self.message.setText("API key saved locally. Process GEMINI_API_KEY and the project .env take precedence when set. Use the model test to check access; no request made yet.")
 
     def start_cloud(self, probe):
         from .runner import request_context

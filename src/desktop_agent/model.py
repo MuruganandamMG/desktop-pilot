@@ -63,7 +63,10 @@ def _api_error(exc, attempts) -> ModelError:
 
 class GeminiClient:
     def __init__(self, settings: Settings, *, api_key=None, client_factory=genai.Client, retry_delay=0.2):
-        key = api_key if api_key is not None else get_api_key()
+        try:
+            key = api_key if api_key is not None else get_api_key()
+        except ValueError:
+            raise ModelError("credential_config", "Invalid GEMINI_API_KEY configuration; check the process setting and project .env format") from None
         if type(key) is not str or not key.strip():
             raise ModelError("missing_key", "Add a Gemini API key locally before making a cloud request")
         self.settings, self._key, self._factory = settings, key, client_factory

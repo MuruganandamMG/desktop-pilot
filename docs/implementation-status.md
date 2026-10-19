@@ -45,3 +45,9 @@ No API key is stored, so live auth, model availability, provider billing, real c
 ## Pending live prerequisites
 
 Gemini key and capability probe; browser/site selection; actual desktop interaction; startup opt-in after acceptance; clean-machine packaging/performance checks. None is treated as complete merely because offline tests pass.
+
+## Direct-main development and .env
+
+PR #1 is merged. The active checkout is `D:\Desktop agent` on `main`, per the user's instruction; tested changes push directly to `origin/main`. Feature branches/worktrees were retained, not deleted.
+
+The ignored root `.env` now supplies a literal `GEMINI_API_KEY` between process-environment and Credential Manager precedence. No dotenv dependency, shell evaluation, interpolation, CWD/parent search or process mutation is introduced. Empty keys fall through; malformed/duplicate/oversized/reparse configurations fail without showing values. Existing local key content is preserved. Local tests isolate the file and process variable so they cannot read a developer's actual credential. The active `main` checkout has its own ignored `.venv`, installed against `D:\Desktop agent`; the old worktree environment is retained. Current suite: 95 passed, one symlink privilege skip. No live cloud request was performed for this change.

@@ -1,4 +1,4 @@
-"""Validated nonsecret settings; credentials stay in Windows Credential Manager."""
+"""Validated settings with explicit process/project key overrides."""
 
 from dataclasses import asdict, dataclass
 from datetime import date
@@ -6,8 +6,12 @@ from decimal import Decimal, InvalidOperation
 import json
 import os
 from pathlib import Path
+import shlex
 
 import keyring
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def data_dir() -> Path:
@@ -80,8 +84,53 @@ def save_settings(settings: Settings, path: Path | None = None) -> None:
     path.write_text(json.dumps(asdict(settings), indent=2) + "\n", encoding="utf-8")
 
 
+def _checked_key(value: str | None) -> str | None:
+    if value is None or not value.strip():
+        return None
+    value = value.strip()
+    if len(value) > 4096 or any(character.isspace() for character in value):
+        raise ValueError("Invalid GEMINI_API_KEY configuration")
+    return value
+
+
+def _project_env_key() -> str | None:
+    # Never discover .env through the current directory or parent traversal.
+    if not (PROJECT_ROOT / "pyproject.toml").is_file():
+        return None
+    path = PROJECT_ROOT / ".env"
+    try:
+        if path.is_symlink() or getattr(path.lstat(), "st_file_attributes", 0) & 0x400:
+            raise ValueError("Invalid GEMINI_API_KEY project .env path")
+        with path.open("rb") as source:
+            raw = source.read(65537)
+        if len(raw) > 65536:
+            raise ValueError("GEMINI_API_KEY project .env exceeds 64 KiB")
+        found, value = False, None
+        for line in raw.decode("utf-8-sig").splitlines():
+            name, separator, literal = line.partition("=")
+            fields = name.strip().split()
+            if fields == ["export", "GEMINI_API_KEY"]:
+                name = "GEMINI_API_KEY"
+            if not separator or name.strip() != "GEMINI_API_KEY":
+                continue
+            if found:
+                raise ValueError("Duplicate GEMINI_API_KEY configuration")
+            found = True
+            tokens = shlex.split(literal, comments=True, posix=True)
+            if len(tokens) > 1:
+                raise ValueError("Invalid GEMINI_API_KEY literal")
+            value = _checked_key(tokens[0] if tokens else None)
+        return value
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeError, ValueError):
+        raise ValueError("Cannot load GEMINI_API_KEY from the project .env; check its format and size") from None
+
+
 def get_api_key() -> str | None:
-    return keyring.get_password("DesktopPilot", "gemini-api-key")
+    return (_checked_key(os.environ.get("GEMINI_API_KEY"))
+            or _project_env_key()
+            or _checked_key(keyring.get_password("DesktopPilot", "gemini-api-key")))
 
 
 def set_api_key(value: str) -> None:
