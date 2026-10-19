@@ -4,10 +4,11 @@ from pathlib import Path
 from dataclasses import replace
 import sqlite3
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Qt
+from PySide6.QtCore import QObject, QRunnable, QSignalBlocker, QThreadPool, Signal, Qt
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow,
-    QPushButton, QTextEdit, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow,
+    QMenu, QPushButton, QStyle, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from .contracts import CancelToken, Result, TaskState
@@ -75,6 +76,10 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.store, self.settings = store, settings or Settings()
         self._cloud_active, self._close_requested = False, False
+        self._paused = self._session_locked = False
+        self._session_guard_available = True
+        self._approval_journal_ok = True
+        self._exit_requested = False
         self._memory_bundle = ContextBundle("", ())
         self.setWindowTitle("Desktop Pilot — read-only cloud preview")
         self.resize(800, 820)
@@ -119,6 +124,19 @@ class MainWindow(QMainWindow):
         for button in (self.ask, self.probe, self.stop):
             cloud_row.addWidget(button)
         layout.addLayout(cloud_row)
+        safety_row = QHBoxLayout()
+        self.pause_button = QPushButton("Pause tasks")
+        self.pause_button.setCheckable(True)
+        self.pause_button.toggled.connect(self.pause_tasks)
+        self.hide_button = QPushButton("Hide to tray")
+        self.hide_button.setEnabled(False)
+        self.hide_button.clicked.connect(self.hide)
+        safety_row.addWidget(self.pause_button)
+        safety_row.addWidget(self.hide_button)
+        layout.addLayout(safety_row)
+        self.native_status = QLabel("Native safety controls initialize when the Windows app launches.")
+        self.native_status.setWordWrap(True)
+        layout.addWidget(self.native_status)
         self.message = QLabel("Type a request, then review the cloud preview. Add the API key locally before the first model test.")
         self.message.setWordWrap(True)
         layout.addWidget(self.message)
@@ -144,6 +162,14 @@ class MainWindow(QMainWindow):
         self.attach_memory.setEnabled(False)
         layout.addWidget(self.attach_memory)
         self.setCentralWidget(body)
+        self.tray_menu = QMenu(self)
+        self.tray_menu.addAction("Show", self.show_from_tray)
+        self.tray_pause = QAction("Pause tasks", self)
+        self.tray_pause.setCheckable(True)
+        self.tray_pause.toggled.connect(self.pause_tasks)
+        self.tray_menu.addAction(self.tray_pause)
+        self.tray_menu.addAction("Cancel active task", self.cancel_cloud)
+        self.tray_menu.addAction("Exit", self.request_exit)
         self.refresh()
 
     def refresh(self):
@@ -181,7 +207,7 @@ class MainWindow(QMainWindow):
 
     def start_cloud(self, probe):
         from .runner import request_context
-        if self._cloud_active:
+        if self._cloud_active or self._paused or self._session_locked or not self._session_guard_available:
             return
         command = "Call runtime_status once with no arguments." if probe else self.command.text().strip()
         context = self._memory_bundle if self.attach_memory.isChecked() and not probe else None
@@ -193,6 +219,9 @@ class MainWindow(QMainWindow):
             return
         if CloudPreviewDialog(settings, bundle, self).exec() != QDialog.DialogCode.Accepted:
             self.message.setText("Cloud preview cancelled; nothing sent.")
+            return
+        if self._paused or self._session_locked or not self._session_guard_available:
+            self.message.setText("Task paused during preview; nothing sent.")
             return
         try:
             task = self.store.create_task(command)
@@ -209,8 +238,10 @@ class MainWindow(QMainWindow):
 
     def set_cloud_active(self, active):
         self._cloud_active = active
-        for control in (self.command, self.model_input, self.key_button, self.ask, self.probe):
+        for control in (self.command, self.model_input, self.key_button):
             control.setEnabled(not active)
+        for control in (self.ask, self.probe):
+            control.setEnabled(not active and not self._paused and not self._session_locked and self._session_guard_available)
         self.stop.setEnabled(active)
         self.attach_memory.setEnabled(not active and bool(self._memory_bundle.text))
 
@@ -230,8 +261,83 @@ class MainWindow(QMainWindow):
             f"Estimated USD: {estimate if estimate is not None else 'unavailable; provider billing may differ'}\n\n{answer or result.summary}"
         )
         self.refresh()
+        if self._paused:
+            self.message.setText("Paused. Completed receipts retained; resume permits new reviewed tasks only.")
         if self._close_requested:
             self.close()
+
+    def pause_tasks(self, paused):
+        if not paused and not self._approval_journal_ok:
+            try:
+                self.store.invalidate_approvals()
+            except sqlite3.Error:
+                paused = True
+            else:
+                self._approval_journal_ok = True
+        if not paused and (self._session_locked or not self._session_guard_available):
+            paused = True
+        self._paused = bool(paused)
+        for control in (self.pause_button, self.tray_pause):
+            with QSignalBlocker(control):
+                control.setChecked(self._paused)
+                control.setText("Resume new tasks" if self._paused else "Pause tasks")
+        if self._paused:
+            if self._cloud_active:
+                self._cloud_cancel.pause()
+            for dialog in self.findChildren(QDialog):
+                dialog.reject()
+            try:
+                self.store.invalidate_approvals()
+            except sqlite3.Error:
+                self._approval_journal_ok = False
+                self.message.setText("Paused; approval journal unavailable. Do not resume until it is accessible.")
+            else:
+                self._approval_journal_ok = True
+                self.message.setText("Paused; pending approvals invalidated. Existing tasks will not resume automatically.")
+        else:
+            self.message.setText("Ready for a new reviewed task. Previous tasks remain paused.")
+        self.set_cloud_active(self._cloud_active)
+
+    def emergency_stop(self):
+        self.pause_tasks(True)
+        self.message.setText("Emergency stop: tasks paused. Review receipts before starting a new task.")
+
+    def session_locked(self):
+        self._session_locked = True
+        self.pause_tasks(True)
+
+    def session_unlocked(self):
+        self._session_locked = False
+        self.set_cloud_active(self._cloud_active)
+        self.message.setText("Session unlocked; tasks remain paused until you explicitly resume new tasks.")
+
+    def set_native_status(self, hotkey, session):
+        self._session_guard_available = bool(session)
+        shortcut = "Ctrl+Alt+Pause ready" if hotkey else "Ctrl+Alt+Pause unavailable; use visible Pause/Cancel"
+        self.native_status.setText(f"{shortcut}. " + ("Session lock monitoring ready." if session else "Session lock monitoring unavailable; cloud tasks disabled."))
+        if not session:
+            self.pause_tasks(True)
+        self.set_cloud_active(self._cloud_active)
+
+    def install_tray(self):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return False
+        self.tray = QSystemTrayIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), self)
+        self.tray.setToolTip("Desktop Pilot")
+        self.tray.setContextMenu(self.tray_menu)
+        self.tray.activated.connect(lambda reason: self.show_from_tray() if reason == QSystemTrayIcon.ActivationReason.DoubleClick else None)
+        self.tray.show()
+        self.hide_button.setEnabled(True)
+        return True
+
+    def show_from_tray(self):
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def request_exit(self):
+        self._exit_requested = True
+        self.close()
 
     def closeEvent(self, event):
         if self._cloud_active:
@@ -239,7 +345,11 @@ class MainWindow(QMainWindow):
             self.cancel_cloud()
             event.ignore()
         else:
+            if hasattr(self, "tray"):
+                self.tray.hide()
             event.accept()
+            if self._exit_requested:
+                QApplication.instance().quit()
 
 
 class CloudPreviewDialog(QDialog):

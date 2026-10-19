@@ -68,9 +68,14 @@ class Runner:
                 "estimate_usd": str(estimate) if estimate is not None else None,
                 "rate_date": self.settings.rate_date or None})
 
+        def stopped():
+            if cancel.paused:
+                return stop("Task paused; no automatic resume. An in-flight request may still be billed")
+            return stop("Task cancelled; an in-flight request may still be billed", state=TaskState.CANCELLED, status="cancelled")
+
         while True:
             if cancel.cancelled:
-                return stop("Task cancelled; completed receipts are retained", state=TaskState.CANCELLED, status="cancelled")
+                return stopped()
             if requests >= self.settings.max_model_calls:
                 return stop("Model request limit reached; start a reviewed new task to continue")
             if cap is not None and (unknown_cost or spent >= cap or self._estimate(model_id, TokenUsage(0, 0)) is None):
@@ -81,14 +86,14 @@ class Runner:
             except ModelError as exc:
                 record(exc.usage, exc.attempts)
                 if cancel.cancelled or exc.kind == "cancelled":
-                    return stop("Task cancelled; an in-flight cloud request may still be billed", state=TaskState.CANCELLED, status="cancelled")
+                    return stopped()
                 if exc.kind == "invalid_response" and self.settings.stronger_model_id and not escalated and actions == 0 and not probe:
                     model_id, escalated = self.settings.stronger_model_id, True
                     continue
                 return stop(str(exc))
             record(turn.usage, turn.attempts)
             if cancel.cancelled:
-                return stop("Task cancelled after model response; no subsequent action executed", state=TaskState.CANCELLED, status="cancelled")
+                return stopped()
             if not turn.calls:
                 if probe:
                     return stop("Model probe did not return a structured function call", state=TaskState.FAILED, status="failed")
@@ -118,7 +123,7 @@ class Runner:
             responses = []
             for call, proposal in prepared:
                 if cancel.cancelled:
-                    return stop("Task cancelled; no further tool executed", state=TaskState.CANCELLED, status="cancelled")
+                    return stopped()
                 self.store.transition(task_id, TaskState.EXECUTING)
                 try:
                     result = self.executor.execute(proposal, None, cancel)

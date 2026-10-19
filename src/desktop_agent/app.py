@@ -26,7 +26,23 @@ def run(store, data_path: Path) -> int:
     store.interrupt_inflight()
     window = MainWindow(store, load_settings(data_path / "settings.json"))
     window.show()
+    events = None
     try:
+        from .windows_events import WindowsEvents
+        try:
+            events = WindowsEvents(int(window.winId()), window.emergency_stop, window.session_locked, window.session_unlocked)
+            app.installNativeEventFilter(events)
+            window.set_native_status(*events.start())
+        except OSError:
+            window.set_native_status(False, False)
+        window.install_tray()
         return app.exec()
     finally:
-        lock.unlock()
+        try:
+            if hasattr(window, "tray"):
+                window.tray.hide()
+            if events is not None:
+                app.removeNativeEventFilter(events)
+                events.close()
+        finally:
+            lock.unlock()

@@ -215,3 +215,15 @@ def test_probe_never_certifies_a_different_fallback_model(system):
     assert result.status == "partial"
     assert len(model.requests) == 1
     assert result.evidence["model_id"] == "gemini-3.5-flash-lite"
+
+
+def test_pause_signal_retains_paused_state_and_requires_a_new_review(system):
+    model = Model()
+    run, _ = runner(system, model)
+    task = system.create_task("status")
+    cancel = CancelToken()
+    cancel.pause()
+    assert run.run(task, "status", cancel).status == "partial"
+    assert system.get_task(task)["state"] == "PAUSED"
+    assert run.run(task, "status", CancelToken()).status == "failed"
+    assert not model.requests

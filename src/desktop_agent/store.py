@@ -112,6 +112,10 @@ class Store:
             return self.db.execute("""UPDATE tasks SET state='INTERRUPTED'
                 WHERE state IN ('QUEUED','PLANNING','WAITING_APPROVAL','EXECUTING','VERIFYING')""").rowcount
 
+    def invalidate_approvals(self) -> None:
+        with self.db:
+            self.db.execute("UPDATE approvals SET decision='rejected' WHERE consumed=0")
+
     def claim_action(self, task_id: str, action_id: str, digest: str) -> None:
         try:
             with self.db:

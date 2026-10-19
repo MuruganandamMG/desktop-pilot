@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from enum import StrEnum
 import json
-from threading import Event
+from threading import Event, Lock
 from types import MappingProxyType
 from collections.abc import Mapping
 
@@ -101,13 +101,28 @@ class Result:
 class CancelToken:
     def __init__(self):
         self._event = Event()
+        self._lock = Lock()
+        self._reason = None
 
     @property
     def cancelled(self):
         return self._event.is_set()
 
     def cancel(self):
-        self._event.set()
+        self._signal("cancelled")
+
+    @property
+    def paused(self):
+        return self._reason == "paused"
+
+    def pause(self):
+        self._signal("paused")
+
+    def _signal(self, reason):
+        with self._lock:
+            if not self._event.is_set():
+                self._reason = reason
+                self._event.set()
 
 
 @dataclass(frozen=True)
