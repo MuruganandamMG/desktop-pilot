@@ -24,9 +24,9 @@
 ## GitHub and branches
 
 - Repository: https://github.com/MuruganandamMG/desktop-pilot.git; remote name `origin`.
-- `main` is the integration branch. Bootstrap an empty repository once; subsequent implementation goes on `feat/<scope>` or `fix/<scope>` branches.
-- Fetch before beginning work. Inspect remote/default branch and local changes; never assume the repository is empty. Branch from current `origin/main` and avoid editing files owned by other active work.
-- Commit each coherent, tested change and push that commit to its feature branch immediately. Do not push every keystroke or automatically commit via hooks. Never push tests known to fail.
+- Current user instruction: work directly on `main` in `D:\Desktop agent`. Do not create another feature branch or worktree unless requested. Existing feature worktrees are retained but are not the active implementation checkout.
+- Fetch before beginning work. Inspect divergence and local changes; fast-forward only and preserve unrelated edits. Never assume the repository is empty or rewrite shared history.
+- Commit each coherent, tested change and push it to `origin/main` immediately. Do not push every keystroke or automatically commit via hooks. Never push tests known to fail.
 - Before pushing, inspect staged files for accidental personal data/secrets, run relevant checks, and verify push success. Before a PR, fetch and check divergence and conflicts. Never automatically merge or rewrite a shared branch.
 - GitHub Actions runs checks on pushes and pull requests. Configure branch protection only if the account/repository supports it and authorization/API permissions allow it; do not claim protection exists just because CI exists.
-- Open a reviewable PR at a milestone. Keep branch/PR descriptions accurate and list untested live integrations. User has authorized feature-branch pushes; production release, merging, deletion, and startup activation remain separate decisions.
+- User has explicitly authorized direct `main` development and pushes. Keep development status accurate and list untested live integrations. Production release, deletion, and startup activation remain separate decisions. Use PRs only if requested under the current direct-main workflow.
