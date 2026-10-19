@@ -36,7 +36,7 @@ def test_audio_bounds_and_interrupt():
     audio.add_output(b'\x01\x00' * 480)
     audio.interrupt()
     assert audio.output(960) == bytes(960)
-    audio.add_output(bytes(24002))
+    audio.add_output(bytes(480002))
     assert audio.error
     audio = AudioBuffer()
     for _ in range(13):
@@ -227,3 +227,10 @@ def test_handsfree_starts_without_keyboard_and_local_exit_cleans_up(tmp_path, mo
     assert calls.count('cloud_started') == starts
     assert 'goodbye' in calls
     assert 'local_closed' in calls and 'hooks_closed' in calls
+
+
+def test_normal_one_second_audio_packet_is_not_an_overflow():
+    audio = AudioBuffer()
+    audio.add_output(bytes(48000))
+    assert audio.error is None
+    assert len(audio.playback) == 48000

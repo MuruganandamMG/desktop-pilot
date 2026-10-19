@@ -14,6 +14,10 @@ from .settings import get_api_key, voice_settings, load_settings
 from .contracts import TaskState
 
 
+class AudioError(RuntimeError):
+    """Local, credential-free audio diagnostic safe for the terminal."""
+
+
 def safe_text(value):
     text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', str(value))
     return ''.join(c for c in redact(text) if c.isprintable() or c == '\n')[:2000]
@@ -54,7 +58,8 @@ class AudioBuffer:
 
     def add_output(self, data):
         with self.lock:
-            if len(self.playback) + len(data) > 24000:
+            # Provider packets can arrive faster than playback; retain at most ten seconds.
+            if len(self.playback) + len(data) > 480000:
                 self.error = 'Speaker buffer overflow; session stopped. Check your output device/network.'
             else:
                 self.playback.extend(data)
@@ -100,7 +105,7 @@ async def receive(session, audio, log=event):
                                 raise ValueError('Unexpected audio format')
                             audio.add_output(blob.data)
                             if audio.error:
-                                raise RuntimeError('Audio output overflow')
+                                raise AudioError(audio.error)
                 for label, transcript in (('YOU', content.input_transcription),
                                           ('GEMINI (advice)', content.output_transcription)):
                     if transcript and transcript.text:
@@ -158,15 +163,16 @@ async def stream_session(client, model, devices, stopped, *, audio_module=None, 
             mic = stack.enter_context(sd.RawInputStream(samplerate=16000, channels=1, dtype='int16',
                 blocksize=320, device=devices[0], callback=lambda data, frames, timing, status: audio.capture(data, status)))
             def playback(data, frames, timing, status):
-                if status:
-                    audio.error = 'Speaker underflow/device failure'
+                # A timing underrun is recoverable; stream.active detects device loss.
                 data[:] = audio.output(len(data))
             speaker = stack.enter_context(sd.RawOutputStream(samplerate=24000, channels=1, dtype='int16',
                 blocksize=480, device=devices[1], callback=playback))
             async def send():
                 while True:
-                    if audio.error or not mic.active or not speaker.active:
-                        raise RuntimeError('Audio device stopped or buffer failed')
+                    if audio.error:
+                        raise AudioError(audio.error)
+                    if not mic.active or not speaker.active:
+                        raise AudioError('Audio device stopped; check the selected microphone and speaker.')
                     data = audio.take_input()
                     if data is None:
                         await asyncio.sleep(.005)
@@ -185,7 +191,7 @@ async def stream_session(client, model, devices, stopped, *, audio_module=None, 
                     task.result()
                 if tasks[1] in done and not stopped.is_set():
                     mic.abort()
-                    deadline = time.monotonic() + .6
+                    deadline = time.monotonic() + 10.1
                     while audio.playback and not stopped.is_set() and time.monotonic() < deadline:
                         await asyncio.sleep(.01)
                 if not done:
@@ -228,6 +234,8 @@ async def journaled_session(store, client, model, devices, stopped):
 
 
 def error_message(exc):
+    if isinstance(exc, AudioError):
+        return str(exc)
     code = getattr(exc, 'code', None)
     if code in (401, 403):
         return 'Authentication/access denied. Check GEMINI_API_KEY and model access locally.'
