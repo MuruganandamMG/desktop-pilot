@@ -9,7 +9,7 @@ from google import genai
 from google.genai import types
 
 from .context import ContextBundle, redact
-from .contracts import Action, CapabilityReport, ModelTurn, TokenUsage, ToolCall
+from .contracts import Action, CancelToken, CapabilityReport, ModelTurn, TokenUsage, ToolCall
 from .settings import Settings, get_api_key
 
 
@@ -71,7 +71,7 @@ class GeminiClient:
         self.retry_delay = retry_delay
 
     def next_step(self, context: ContextBundle, history: list, tools: list[dict], model_id: str,
-                  *, request_allowance=3, force_tool=False) -> ModelTurn:
+                  *, request_allowance=3, force_tool=False, cancel: CancelToken | None = None) -> ModelTurn:
         if type(model_id) is not str or not model_id.strip() or len(model_id) > 128:
             raise ModelError("invalid_request", "Invalid model ID")
         if type(request_allowance) is not int or request_allowance < 1:
@@ -91,7 +91,7 @@ class GeminiClient:
         )
         attempts = [0]
         try:
-            response = asyncio.run(self._bounded_request(contents, config, model_id, min(3, request_allowance), attempts))
+            response = asyncio.run(self._bounded_request(contents, config, model_id, min(3, request_allowance), attempts, cancel))
         except TimeoutError:
             raise ModelError("timeout", "Gemini exceeded the request deadline; no tool was executed", attempts=attempts[0]) from None
         usage = _usage(response)
@@ -101,8 +101,20 @@ class GeminiClient:
             raise ModelError("invalid_response", "Gemini returned an invalid or incomplete tool proposal", attempts=attempts[0], usage=usage) from None
         return turn
 
-    async def _bounded_request(self, contents, config, model_id, allowance, attempts):
-        return await asyncio.wait_for(self._request(contents, config, model_id, allowance, attempts), timeout=self.timeout_seconds)
+    async def _bounded_request(self, contents, config, model_id, allowance, attempts, cancel):
+        async def monitored():
+            request = asyncio.create_task(self._request(contents, config, model_id, allowance, attempts))
+            try:
+                while not request.done():
+                    if cancel is not None and cancel.cancelled:
+                        raise ModelError("cancelled", "Gemini request cancelled; an in-flight request may still be billed", attempts=attempts[0])
+                    await asyncio.wait({request}, timeout=0.05)
+                return await request
+            finally:
+                if not request.done():
+                    request.cancel()
+                await asyncio.gather(request, return_exceptions=True)
+        return await asyncio.wait_for(monitored(), timeout=self.timeout_seconds)
 
     async def _request(self, contents, config, model_id, allowance, attempts):
         # No environment-selected Vertex endpoint or SDK-managed retry/tool execution.

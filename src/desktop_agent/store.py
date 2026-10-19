@@ -64,6 +64,21 @@ class Store:
             raise KeyError(task_id)
         return dict(row)
 
+    def begin_run(self, task_id: str) -> None:
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            if self.get_task(task_id)["state"] != TaskState.QUEUED:
+                raise PermissionError("Only a new task may start; interrupted work needs explicit review")
+            active = self.db.execute("""SELECT 1 FROM tasks WHERE id<>?
+                AND state IN ('PLANNING','WAITING_APPROVAL','EXECUTING','VERIFYING') LIMIT 1""", (task_id,)).fetchone()
+            if active:
+                raise PermissionError("Another task is active")
+            self.db.execute("UPDATE tasks SET state='PLANNING' WHERE id=?", (task_id,))
+
+    def model_request_count(self) -> int:
+        return sum(event.get("attempts", 0) for row in self.db.execute("SELECT payload FROM events")
+                   if (event := json.loads(row[0])).get("kind") == "model_usage")
+
     def list_tasks(self) -> list[dict]:
         return [dict(row) for row in self.db.execute("SELECT * FROM tasks ORDER BY created DESC LIMIT 100")]
 

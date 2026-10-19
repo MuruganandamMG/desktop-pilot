@@ -1,6 +1,8 @@
 """Validated nonsecret settings; credentials stay in Windows Credential Manager."""
 
 from dataclasses import asdict, dataclass
+from datetime import date
+from decimal import Decimal, InvalidOperation
 import json
 import os
 from pathlib import Path
@@ -21,6 +23,12 @@ class Settings:
     max_tool_actions: int = 20
     request_timeout_seconds: int = 60
     max_output_tokens: int = 1024
+    stronger_model_id: str = ""
+    budget_usd: str = ""
+    rate_model_id: str = ""
+    input_rate_usd: str = ""
+    output_rate_usd: str = ""
+    rate_date: str = ""
 
     def __post_init__(self):
         if type(self.model_id) is not str or not self.model_id.strip() or len(self.model_id) > 128:
@@ -30,6 +38,24 @@ class Settings:
         for value in (self.max_model_calls, self.max_tool_actions, self.request_timeout_seconds, self.max_output_tokens):
             if type(value) is not int or value < 1 or value > 65536:
                 raise ValueError("Invalid request limit")
+        for value in (self.stronger_model_id, self.rate_model_id, self.rate_date):
+            if type(value) is not str or len(value) > 128:
+                raise ValueError("Invalid model/rate metadata")
+        for value in (self.budget_usd, self.input_rate_usd, self.output_rate_usd):
+            if type(value) is not str or len(value) > 32:
+                raise ValueError("Money estimates must be bounded decimal strings")
+            if value:
+                try:
+                    amount = Decimal(value)
+                    if not amount.is_finite() or amount < 0:
+                        raise ValueError("Money estimates must be finite and nonnegative")
+                except InvalidOperation as exc:
+                    raise ValueError("Invalid money estimate") from exc
+        rates = (self.rate_model_id, self.input_rate_usd, self.output_rate_usd, self.rate_date)
+        if any(rates) and not all(rates):
+            raise ValueError("Rates need a model ID, input/output USD per million tokens, and an ISO date")
+        if self.rate_date:
+            date.fromisoformat(self.rate_date)
 
 
 def load_settings(path: Path | None = None) -> Settings:

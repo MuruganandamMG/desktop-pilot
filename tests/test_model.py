@@ -9,6 +9,7 @@ from google.genai import types
 from desktop_agent.context import ContextBundle
 from desktop_agent.model import GeminiClient, ModelError
 from desktop_agent.settings import Settings
+from desktop_agent.contracts import CancelToken
 
 
 TOOLS = [{"name": "runtime_status", "description": "Read the assistant mode", "parameters_json_schema": {"type": "object", "properties": {}, "additionalProperties": False}}]
@@ -146,3 +147,18 @@ def test_request_deadline_cancels_slow_transport():
     with pytest.raises(ModelError) as caught:
         client.next_step(ContextBundle("hello", ()), [], [], "gemini-3.5-flash-lite")
     assert caught.value.kind == "timeout"
+
+
+def test_cancellation_stops_an_inflight_request():
+    cancel = CancelToken()
+
+    class CancelAPI(FakeAPI):
+        async def generate(self, **request):
+            cancel.cancel()
+            await asyncio.sleep(2)
+            return response()
+
+    client = GeminiClient(Settings(), api_key="test-key", client_factory=CancelAPI().factory)
+    with pytest.raises(ModelError) as caught:
+        client.next_step(ContextBundle("hello", ()), [], [], "gemini-3.5-flash-lite", cancel=cancel)
+    assert caught.value.kind == "cancelled"

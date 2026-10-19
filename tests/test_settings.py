@@ -28,3 +28,13 @@ def test_credential_backend_is_separate_from_settings(tmp_path, monkeypatch):
     assert "test-secret" not in path.read_text()
     with pytest.raises(ValueError):
         set_api_key("")
+
+
+@pytest.mark.parametrize("values", [
+    {"budget_usd": "NaN"}, {"budget_usd": "-1"}, {"input_rate_usd": "1"},
+    {"input_rate_usd": "1", "output_rate_usd": "2", "rate_model_id": "x", "rate_date": "yesterday"},
+    {"stronger_model_id": 42},
+])
+def test_invalid_budget_or_rate_metadata_is_rejected(values):
+    with pytest.raises(ValueError):
+        Settings(**values)
